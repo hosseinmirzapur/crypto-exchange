@@ -1,0 +1,32 @@
+register
+'EMAIL_REGISTERED'
+'EMAIL_VERIFIED'
+'SUBMITTED'
+'WRONG_CODE'
+'EMAIL_SENT'
+'OLD_TOKEN' => token is expired and must change
+'CODE_SENT'
+
+profile
+'PROFILE_CREATED'
+'PROFILE_UPDATED'
+'IMAGE_UPLOADED'
+'STATUS_UPDATED'
+
+'REFERRAL_ADDED'
+'SETTING_CONFIGURED'
+
+
+
+
+bank account
+'ACCOUNT_CREATED'
+'ACCOUNT_DELETED'
+
+status
+"ACCEPTED_BEFORE"
+"REJECTED_BEFORE"
+
+transaction
+"ACCEPT_TRANSACTION" = 'card transaction must be accepted'
+"NOT_ENOUGH_CREDIT"

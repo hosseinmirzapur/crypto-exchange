@@ -1,0 +1,150 @@
+<?php
+
+namespace App\Exceptions;
+
+
+use App\Models\Config;
+use BadMethodCallException;
+use Binance\BinanceApiException;
+use Binance\InvalidArgumentException;
+use Binance\RuntimeException;
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Auth\AuthenticationException;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Foundation\Exceptions\Handler as ExceptionHandler;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
+use Laravel\Socialite\Two\InvalidStateException;
+use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpKernel\Exception\MethodNotAllowedHttpException;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+use Throwable;
+use function App\Helpers\current_user;
+use function App\Helpers\errorResponse;
+use function App\Helpers\successResponse;
+
+class Handler extends ExceptionHandler
+{
+    /**
+     * A list of the exception types that are not reported.
+     *
+     * @var array
+     */
+    protected $dontReport = [
+        //
+    ];
+
+    /**
+     * A list of the inputs that are never flashed for validation exceptions.
+     *
+     * @var array
+     */
+    protected $dontFlash = [
+        'current_password',
+        'password',
+        'password_confirmation',
+    ];
+
+    private $custom_error = ["ACCEPTED_BEFORE", "NOT_ENOUGH_CREDIT", "REJECTED_BEFORE"];
+
+    /**
+     * Register the exception handling callbacks for the application.
+     *
+     * @return void
+     */
+    public function register()
+    {
+        $this->reportable(function (Throwable $e) {
+            //
+        });
+    }
+
+    public function render($request, Throwable $e)
+    {
+        if ($e instanceof ModelNotFoundException) {
+            $model_name = str_replace('App\\Models\\', '', $e->getModel());
+            return errorResponse($model_name . "_NOT_FOUND");
+        }
+        if ($e instanceof AuthenticationException) {
+            return errorResponse(trans("messages.UNAUTHENTICATED"), Response::HTTP_FORBIDDEN);
+        }
+        if ($e instanceof AuthorizationException) {
+            return errorResponse(trans("messages.UNAUTHORIZED"), Response::HTTP_UNAUTHORIZED);
+        }
+        if ($e instanceof BinanceException) {
+            Log::error($e->getMessage());
+            return errorResponse(trans('messages.CONNECTION_PROBLEM'), 400);
+        }
+        if ($e instanceof CustomException) {
+            return errorResponse($e->getMessage(), 400, $e->responseCode ?? null);
+        }
+        if (
+            $e instanceof NotFoundHttpException |
+            $e instanceof MethodNotAllowedHttpException |
+            $e instanceof BadMethodCallException |
+            $e instanceof InvalidStateException
+        ) {
+            return errorResponse(trans('messages.NOT_FOUND'), 404);
+        }
+
+        if ($e instanceof \Kavenegar\Exceptions\ApiException || $e instanceof \Kavenegar\Exceptions\HttpException) {
+            Log::error('sms problem: ' . $e->getMessage());
+            return errorResponse(trans('messages.SMS_WRONG_SERVER'), 400);
+        }
+
+        if ($e instanceof BinanceApiException) {
+            $msg = $e->getMessage();
+            Log::alert('binance errors' . json_encode($msg));
+            $error = json_decode($e->getMessage(), true);
+            if (isset($error['code'])) {
+                if ($error['code'] === -2015 || $error['code'] === -2010) {
+                    Config::updateOrCreate(
+                        [
+                            'type' => 'MAIN',
+                            'key' => 'AUTO_TRADE'
+                        ],
+                        [
+                            'type' => 'MAIN',
+                            'key' => 'AUTO_TRADE',
+                            'value' => 'MANUAL'
+                        ]
+                    );
+                }
+                if ($error['code'] === -2010) {
+                    return successResponse(
+                        null,
+                        200,
+                        ['message' => trans('messages.CONNECTION_PROBLEM')]
+                    );
+                }
+
+            }
+            return errorResponse(trans('messages.CONNECTION_PROBLEM'), 400);
+        }
+
+        if ($e instanceof RuntimeException || $e instanceof InvalidArgumentException) {
+            Log::error('binance api error' . json_encode($e->getMessage()));
+            if (Auth::user() && current_user()->isAdmin()) {
+                return errorResponse(trans('messages.EXCHANGE_API_PROVIDER'), 400);
+            }
+            return errorResponse(trans('messages.CONNECTION_PROBLEM'), 400);
+        }
+
+        if (in_array($e->getMessage(), $this->custom_error)) {
+            return errorResponse(trans($e->getMessage()), 400);
+        }
+
+        return parent::render($request, $e); // TODO: Change the autogenerated stub
+    }
+
+    protected function invalidJson($request, ValidationException $exception)
+    {
+        return response()->json([
+            'message' => trans('messages.VALIDATION'),
+            'errors' => $exception->errors(),
+            'type' => 'error',
+            'status' => $exception->status
+        ], $exception->status);
+    }
+}
